@@ -1,45 +1,55 @@
-name: Ansible Container Build
+name: ansible
 on:
   workflow_dispatch:
     inputs:
       git-ref:
         description: Git Ref (Optional)    
         required: false
+  schedule:
+    - cron: '0 1 * * *'
   push:
+    paths-ignore:
+    - 'docs/**'
+    - '**.md'
     branches: 
       - main
   pull_request:
+    paths-ignore:
+    - 'docs/**'
+    - '**.md'
     branches: 
       - main
-  schedule:
-    - cron: '0 1 * * *'
 jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
-    - name: Variable | Export Build Date
+    - name: Login Quay.io
+      uses: docker/login-action@v1
+      with:
+        logout: true
+        registry: quay.io
+        username: ${{ secrets.DOCKERHUB_USER }}
+        password: ${{ secrets.DOCKERHUB_PASSWD }}
+    - name: Rake Variables
       run: |
-        echo "varrundate=$(date +%y%m%d%I%M%S)" >> $GITHUB_ENV
-        
-    - name: Variable | Git Commit Hash
-      run: |
-        echo "githash=$(git log -1 --pretty=%h)" >> $GITHUB_ENV
-        
-    - name: Quay.io Login
-      run: |
-        echo '${{ secrets.DOCKERHUB_PASSWD }}' | docker login -u ${{ secrets.DOCKERHUB_USER }} --password-stdin quay.io
-
-    - name: Build Image
-      run: |
-        docker build . \
-                 --force-rm \
-                 --file ./Dockerfile \
-                 --tag quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible \
-                 --tag quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible:latest \
-                 --tag quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible:${{ env.varrundate }}-${{ env.githash }}
-    - name: Image Push | ansible | quay.io
-      run: |
-        docker push quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible; \
-        docker push quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible:latest; \
-        docker push quay.io/${{ secrets.DOCKERHUB_ORGANIZATION }}/ansible:${{ env.varrundate }}-${{ env.githash }}
+        set -x ; \
+        echo "varrundate=$(date +%y%m%d%I%M%S)" >> ${GITHUB_ENV};\
+        echo;
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Git Checkout
+      uses: actions/checkout@v2
+    - name: Build Image 
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        file: Dockerfile
+        platforms: linux/amd64
+        push: true
+        tags: |
+          docker.io/${{ secrets.GIT_PROJECT }}/${{ github.workflow }}
+          docker.io/${{ secrets.GIT_PROJECT }}/${{ github.workflow }}:ubi
+          docker.io/${{ secrets.GIT_PROJECT }}/${{ github.workflow }}:latest
+          docker.io/${{ secrets.GIT_PROJECT }}/${{ github.workflow }}:main-${{ env.varrundate }}-${{ github.sha }}
+        build-args: |
+          varRunDate=${{ env.varrundate }}
